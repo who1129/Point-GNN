@@ -11,6 +11,9 @@ import numpy as np
 import open3d
 import cv2
 
+## to-do: remove image input
+width = 1242
+height = 375
 Points = namedtuple('Points', ['xyz', 'attr'])
 
 def downsample_by_average_voxel(points, voxel_size):
@@ -649,9 +652,7 @@ class KittiDataset(object):
             calib = self.get_calib(frame_idx)
         cam_points = self.get_cam_points(frame_idx, downsample_voxel_size,
             calib=calib, xyz_range=xyz_range)
-        image = self.get_image(frame_idx)
-        height = image.shape[0]
-        width = image.shape[1]
+        
         front_cam_points_idx = cam_points.xyz[:,2] > 0.1
         front_cam_points = Points(cam_points.xyz[front_cam_points_idx, :],
             cam_points.attr[front_cam_points_idx, :])
@@ -663,43 +664,6 @@ class KittiDataset(object):
             xyz = front_cam_points.xyz[img_points_in_image_idx,:],
             attr = front_cam_points.attr[img_points_in_image_idx,:])
         return cam_points_in_img
-
-    def get_cam_points_in_image_with_rgb(self, frame_idx,
-        downsample_voxel_size=None, calib=None, xyz_range=None):
-        """Get camera points that are visible in image and append image color
-        to the points as attributes."""
-        if calib is None:
-            calib = self.get_calib(frame_idx)
-        cam_points = self.get_cam_points(frame_idx, downsample_voxel_size,
-            calib = calib, xyz_range=xyz_range)
-        front_cam_points_idx = cam_points.xyz[:,2] > 0.1
-        front_cam_points = Points(cam_points.xyz[front_cam_points_idx, :],
-            cam_points.attr[front_cam_points_idx, :])
-        image = self.get_image(frame_idx)
-        height = image.shape[0]
-        width = image.shape[1]
-        img_points = self.cam_points_to_image(front_cam_points, calib)
-        img_points_in_image_idx = np.logical_and.reduce(
-            [img_points.xyz[:,0]>0, img_points.xyz[:,0]<width,
-             img_points.xyz[:,1]>0, img_points.xyz[:,1]<height])
-        cam_points_in_img = Points(
-            xyz = front_cam_points.xyz[img_points_in_image_idx,:],
-            attr = front_cam_points.attr[img_points_in_image_idx,:])
-        cam_points_in_img_with_rgb = self.rgb_to_cam_points(cam_points_in_img,
-            image, calib)
-        return cam_points_in_img_with_rgb
-
-    def get_image(self, frame_idx):
-        """Load the image from frame_idx.
-
-        Args:
-            frame_idx: the index of the frame to read.
-
-        Returns: cv2.matrix
-        """
-
-        image_file = join(self._image_dir, self._file_list[frame_idx])+'.png'
-        return cv2.imread(image_file)
 
     def get_label(self, frame_idx, no_orientation=False):
         """Load bbox labels from frame_idx frame.
@@ -993,7 +957,6 @@ class KittiDataset(object):
 
     def rgb_to_cam_points(self, points, image, calib):
         """Append rgb info to camera points"""
-
         img_points = self.cam_points_to_image(points, calib)
         rgb = image[np.int32(img_points.xyz[:,1]),
             np.int32(img_points.xyz[:,0]),::-1].astype(np.float32)/255
@@ -1039,10 +1002,8 @@ class KittiDataset(object):
 
     def cam_points_to_image(self, points, calib):
         """Convert camera points to image plane.
-
         Args:
             points: a [N, 3] float32 numpy array.
-
         Returns: points on image plane: a [M, 2] float32 numpy array,
                   a mask indicating points: a [N, 1] boolean numpy array.
         """

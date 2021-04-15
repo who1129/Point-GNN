@@ -79,6 +79,16 @@ else:
         num_classes=config['num_classes'])
 NUM_TEST_SAMPLE = dataset.num_files
 NUM_CLASSES = dataset.num_classes
+try:
+    for frame_idx in tqdm(range(0, NUM_TEST_SAMPLE)):
+        start_time = time.time()
+        # provide input ======================================================
+        cam_points = dataset.get_cam_points_in_image(frame_idx,
+            config['downsample_by_voxel_size'])
+        
+except:
+    print("ss")
+
 
 
 # occlusion score =============================================================
@@ -148,12 +158,12 @@ with tf.Session(graph=graph,
     previous_step = sess.run(global_step)
     for frame_idx in tqdm(range(0, NUM_TEST_SAMPLE)):
         start_time = time.time()
-        
         # provide input ======================================================
-        cam_rgb_points = dataset.get_cam_points_in_image_with_rgb(frame_idx,
+        cam_points = dataset.get_cam_points_in_image(frame_idx,
             config['downsample_by_voxel_size'])
+        
         calib = dataset.get_calib(frame_idx)
-        image = dataset.get_image(frame_idx)
+        
         if not IS_TEST:
             box_label_list = dataset.get_label(frame_idx)
         input_time = time.time()
@@ -162,11 +172,11 @@ with tf.Session(graph=graph,
         graph_generate_fn= get_graph_generate_fn(config['graph_gen_method'])
         (vertex_coord_list, keypoint_indices_list, edges_list) = \
             graph_generate_fn(
-                cam_rgb_points.xyz, **config['runtime_graph_gen_kwargs'])
+                cam_points.xyz, **config['runtime_graph_gen_kwargs'])
         graph_time = time.time()
         time_dict['gen graph'] = time_dict.get('gen graph', 0) \
             + graph_time - input_time
-        input_v = cam_rgb_points.attr[:, [0]]
+        input_v = cam_points.attr
         
         last_layer_graph_level = \
             config['model_kwargs']['layer_configs'][-1]['graph_level']
