@@ -25,10 +25,6 @@ from util.summary_util import write_summary_scale
 parser = argparse.ArgumentParser(description='Point-GNN inference on KITTI')
 parser.add_argument('checkpoint_path', type=str,
                    help='Path to checkpoint')
-parser.add_argument('-l', '--level', type=int, default=0,
-                   help='Visualization level, 0 to disable,'+
-                   '1 to nonblocking visualization, 2 to block.'+
-                   'Default=0')
 parser.add_argument('--test', dest='test', action='store_true',
                     default=False, help='Enable test model')
 parser.add_argument('--no-box-merge', dest='use_box_merge',
@@ -48,7 +44,6 @@ parser.add_argument('--output_dir', type=str,
                    help='Path to save the detection results'
                    'Default="CHECKPOINT_PATH/eval/"')
 args = parser.parse_args()
-VISUALIZATION_LEVEL = args.level
 IS_TEST = args.test
 USE_BOX_MERGE = args.use_box_merge
 USE_BOX_SCORE = args.use_box_score
@@ -84,6 +79,8 @@ else:
         num_classes=config['num_classes'])
 NUM_TEST_SAMPLE = dataset.num_files
 NUM_CLASSES = dataset.num_classes
+
+
 # occlusion score =============================================================
 def occlusion(label, xyz):
     if xyz.shape[0] == 0:
@@ -131,46 +128,6 @@ fetches = {
     'probs': t_probs,
     'pred_box': t_pred_box
     }
-# setup Visualizer ============================================================
-if VISUALIZATION_LEVEL == 1:
-    print("Configure the viewpoint as you want and press [q]")
-    calib = dataset.get_calib(0)
-    cam_points_in_img_with_rgb = dataset.get_cam_points_in_image_with_rgb(0,
-        calib=calib)
-    vis = open3d.visualization.Visualizer()
-    vis.create_window()
-    #pcd = open3d.PointCloud()
-    pcd = open3d.geometry.PointCloud()
-    pcd.points = open3d.utility.Vector3dVector(cam_points_in_img_with_rgb.xyz)
-    pcd.colors = open3d.utility.Vector3dVector(cam_points_in_img_with_rgb.attr[:,1:4])
-    line_set = open3d.geometry.LineSet()
-    graph_line_set = open3d.geometry.LineSet()
-    box_corners = np.array([[0, 0, 0]])
-    box_edges = np.array([[0,0]])
-    line_set.points = open3d.utility.Vector3dVector(box_corners)
-    line_set.lines = open3d.utility.Vector2iVector(box_edges)
-    graph_line_set.points = open3d.utility.Vector3dVector(box_corners)
-    graph_line_set.lines = open3d.utility.Vector2iVector(box_edges)
-    vis.add_geometry(pcd)
-    vis.add_geometry(line_set)
-    vis.add_geometry(graph_line_set)
-    ctr = vis.get_view_control()
-    ctr.rotate(0.0, 3141.0, 0)
-    vis.run()
-color_map = np.array([(211,211,211), (255, 0, 0), (255,20,147), (65, 244, 101),
-    (169, 244, 65), (65, 79, 244), (65, 181, 244), (229, 244, 66)],
-    dtype=np.float32)
-color_map = color_map/255.0
-gt_color_map = {
-    'Pedestrian': (0,255,255),
-    'Person_sitting': (218,112,214),
-    'Car': (154,205,50),
-    'Truck':(255,215,0),
-    'Van': (255,20,147),
-    'Tram': (250,128,114),
-    'Misc': (128,0,128),
-    'Cyclist': (255,165,0),
-}
 # runing network ==============================================================
 print("runing network....")
 from tensorflow.python.client import device_lib
@@ -191,10 +148,7 @@ with tf.Session(graph=graph,
     previous_step = sess.run(global_step)
     for frame_idx in tqdm(range(0, NUM_TEST_SAMPLE)):
         start_time = time.time()
-        if VISUALIZATION_LEVEL == 2:
-            pcd = open3d.PointCloud()
-            line_set = open3d.geometry.LineSet()
-            graph_line_set = open3d.geometry.LineSet()
+        
         # provide input ======================================================
         cam_rgb_points = dataset.get_cam_points_in_image_with_rgb(frame_idx,
             config['downsample_by_voxel_size'])
@@ -301,39 +255,7 @@ with tf.Session(graph=graph,
                     appr_factor=100.0, top_k=-1,
                     attributes=np.arange(len(box_indices)))
             box_probs = detection_scores
-            # visualization ===================================================
-            if VISUALIZATION_LEVEL > 0:
-                last_layer_points_color = np.zeros(
-                    (last_layer_points_xyz.shape[0], 3), dtype=np.float32)
-                last_layer_points_color[:, :] =  color_map[raw_box_labels, :]
-                cam_points_color = cam_rgb_points.attr[:, 1:]
-                pcd.points = open3d.utility.Vector3dVector(np.vstack(
-                    [last_layer_points_xyz[box_indices][nms_indices],
-                    last_layer_points_xyz, cam_rgb_points.xyz]))
-                pcd.colors = open3d.utility.Vector3dVector(np.vstack(
-                    [last_layer_points_color[box_indices][nms_indices],
-                    np.tile([(1,0.,200./255)],
-                        (last_layer_points_color.shape[0], 1)),
-                    cam_points_color]))
-                output_points_idx = box_indices[nms_indices]//NUM_CLASSES
-                edge_mask = np.isin(
-                    edges_list[last_layer_graph_level][:, 1],
-                    output_points_idx)
-                last_layer_edges = np.hstack(
-                    [edges_list[last_layer_graph_level][:, [0]][edge_mask],
-                    keypoint_indices_list[-1][edges_list[
-                    last_layer_graph_level][:, 1][edge_mask]]])
-                colors = last_layer_points_color[edges_list[
-                    last_layer_graph_level][:, 1][edge_mask]]
-                for i in range(len(keypoint_indices_list)-2, -1, -1):
-                    last_layer_edges = \
-                        keypoint_indices_list[i][last_layer_edges, 0]
-                last_layer_edges += len(box_indices[nms_indices])
-                last_layer_edges += last_layer_points_xyz.shape[0]
-                lines = last_layer_edges
-                graph_line_set.points = pcd.points
-                graph_line_set.lines = open3d.utility.Vector2iVector(lines)
-                graph_line_set.colors = open3d.utility.Vector3dVector(colors)
+            
             # convert to KITTI ================================================
             detection_boxes_3d_corners = nms.boxes_3d_to_corners(
                 detection_boxes_3d)
@@ -384,18 +306,7 @@ with tf.Session(graph=graph,
                 pred_labels.append((class_name, -1, -1, 0,
                     clip_xmin, clip_ymin, clip_xmax, clip_ymax,
                     h, w, l, x3d, y3d, z3d, yaw, score))
-                if VISUALIZATION_LEVEL > 0:
-                    cv2.rectangle(image,
-                        (int(clip_xmin), int(clip_ymin)),
-                        (int(clip_xmax), int(clip_ymax)), (0, 255, 0), 2)
-                    if class_name == "Pedestrian":
-                        cv2.putText(image, '{:s} | {:.3f}'.format('P', score),
-                            (int(clip_xmin), int(clip_ymin)-int(clip_xmin/10)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 0) ,1)
-                    else:
-                        cv2.putText(image, '{:s} | {:.3f}'.format('C', score),
-                            (int(clip_xmin), int(clip_ymin)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0) ,1)
+                
             nms_time = time.time()
             time_dict['nms'] = time_dict.get('nms', 0) + nms_time - decode_time
             # output ===========================================================
@@ -408,108 +319,14 @@ with tf.Session(graph=graph,
                         f.write(str(field)+' ')
                     f.write('\n')
                 f.write('\n')
-            if VISUALIZATION_LEVEL > 0:
-                if not IS_TEST:
-                    gt_boxes = []
-                    gt_colors = []
-                    for label in box_label_list:
-                        if label['name'] in gt_color_map:
-                            gt_boxes.append([
-                                label['x3d'], label['y3d'], label['z3d'],
-                                label['length'], label['height'],
-                                label['width'], label['yaw']])
-                            gt_colors.append(gt_color_map[label['name']])
-                    gt_boxes = np.array(gt_boxes)
-                    gt_colors = np.array(gt_colors)/255.
-                    gt_box_corners, gt_box_edges, gt_box_colors = \
-                        dataset.boxes_3d_to_line_set(gt_boxes,
-                        boxes_color=gt_colors)
-                    if gt_box_corners is None or gt_box_corners.size<1:
-                        gt_box_corners = np.array([[0, 0, 0]])
-                        gt_box_edges = np.array([[0, 0]])
-                        gt_box_colors =  np.array([[0, 0, 0]])
-                box_corners, box_edges, box_colors = \
-                    dataset.boxes_3d_to_line_set(detection_boxes_3d)
+            
         else:
-            if VISUALIZATION_LEVEL > 0:
-                last_layer_points_color = np.zeros(
-                    (last_layer_points_xyz.shape[0], 3), dtype=np.float32)
-                last_layer_points_color[:, :] =  color_map[raw_box_labels, :]
-                cam_points_color = cam_rgb_points.attr[:, 1:]
-                box_corners = np.array([[0, 0, 0]])
-                box_edges = np.array([[0, 0]])
-                box_colors =  np.array([[0, 0, 0]])
-                pcd.points = open3d.utility.Vector3dVector(np.vstack([
-                    last_layer_points_xyz, cam_rgb_points.xyz]))
-                pcd.colors = open3d.utility.Vector3dVector(np.vstack([np.tile(
-                    [(128./255,0.,128./255)],
-                    (last_layer_points_color.shape[0], 1)), cam_points_color]))
-                graph_line_set.points = open3d.utility.Vector3dVector(
-                    np.array([[0, 0, 0]]))
-                graph_line_set.lines = open3d.utility.Vector2iVector(
-                    [[0, 0]])
-                graph_line_set.colors = open3d.utility.Vector3dVector(
-                    np.array([[0, 0, 0]]))
-                if not IS_TEST:
-                    gt_boxes = []
-                    gt_colors = []
-                    no_gt = True
-                    for label in box_label_list:
-                        if label['name'] in gt_color_map:
-                            gt_boxes.append([label['x3d'], label['y3d'],
-                            label['z3d'], label['length'], label['height'],
-                            label['width'], label['yaw']])
-                            gt_colors.append(gt_color_map[label['name']])
-                            no_gt = False
-                    gt_boxes = np.array(gt_boxes)
-                    gt_colors = np.array(gt_colors)/255.
-                    gt_box_corners, gt_box_edges, gt_box_colors = \
-                        dataset.boxes_3d_to_line_set(gt_boxes,
-                            boxes_color=gt_colors)
-                    if gt_box_corners is None or gt_box_corners.size<1:
-                        gt_box_corners = np.array([[0, 0, 0]])
-                        gt_box_edges = np.array([[0, 0]])
-                        gt_box_colors =  np.array([[0, 0, 0]])
             filename = OUTPUT_DIR+'/data/'+dataset.get_filename(
                 frame_idx)+'.txt'
             os.makedirs(os.path.dirname(filename), exist_ok=True)
             with open(filename, "w") as f:
                 f.write('\n')
 
-        if VISUALIZATION_LEVEL > 0:
-            cv2.imshow('image', image)
-            cv2.waitKey(10)
-            if not IS_TEST:
-                box_edges += gt_box_corners.shape[0]
-                line_set.points = open3d.utility.Vector3dVector(np.vstack(
-                    [gt_box_corners, box_corners]))
-                line_set.lines = open3d.utility.Vector2iVector(np.vstack(
-                    [gt_box_edges, box_edges]))
-                line_set.colors = open3d.utility.Vector3dVector(np.vstack(
-                    [gt_box_colors, box_colors]))
-            else:
-                line_set.points = open3d.utility.Vector3dVector(np.vstack(
-                    [box_corners]))
-                line_set.lines = open3d.utility.Vector2iVector(np.vstack(
-                    [box_edges]))
-                line_set.colors = open3d.utility.Vector3dVector(np.vstack(
-                    [box_colors]))
-        if VISUALIZATION_LEVEL == 1:
-            vis.update_geometry()
-            vis.poll_events()
-            vis.update_renderer()
-        if VISUALIZATION_LEVEL == 2:
-            print("Configure the viewpoint as you want and press [q]")
-            def custom_draw_geometry_load_option(geometry_list):
-                vis = open3d.Visualizer()
-                vis.create_window()
-                for geometry in geometry_list:
-                    vis.add_geometry(geometry)
-                ctr = vis.get_view_control()
-                ctr.rotate(0.0, 3141.0, 0)
-                vis.run()
-                vis.destroy_window()
-            custom_draw_geometry_load_option([pcd, line_set, graph_line_set])
         total_time = time.time()
         time_dict['total'] = time_dict.get('total', 0) \
             + total_time - start_time
