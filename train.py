@@ -88,20 +88,7 @@ def fetch_data(frame_idx):
     graph_generate_fn= get_graph_generate_fn(config['graph_gen_method'])
     (vertex_coord_list, keypoint_indices_list, edges_list) = \
         graph_generate_fn(cam_rgb_points.xyz, **config['graph_gen_kwargs'])
-    if config['input_features'] == 'irgb':
-        input_v = cam_rgb_points.attr
-    elif config['input_features'] == '0rgb':
-        input_v = np.hstack([np.zeros((cam_rgb_points.attr.shape[0], 1)),
-            cam_rgb_points.attr[:, 1:]])
-    elif config['input_features'] == '0000':
-        input_v = np.zeros_like(cam_rgb_points.attr)
-    elif config['input_features'] == 'i000':
-        input_v = np.hstack([cam_rgb_points.attr[:, [0]],
-            np.zeros((cam_rgb_points.attr.shape[0], 3))])
-    elif config['input_features'] == 'i':
-        input_v = cam_rgb_points.attr[:, [0]]
-    elif config['input_features'] == '0':
-        input_v = np.zeros((cam_rgb_points.attr.shape[0], 1))
+    input_v = cam_rgb_points.attr[:, [0]]
     last_layer_graph_level = config['model_kwargs'][
         'layer_configs'][-1]['graph_level']
     last_layer_points_xyz = vertex_coord_list[last_layer_graph_level+1]
@@ -180,24 +167,7 @@ input_tensor_sets = []
 for gi in range(NUM_GPU):
     with tf.device('/gpu:%d'%gi):
         for cp_idx in range(COPY_PER_GPU):
-            if config['input_features'] == 'irgb':
-                t_initial_vertex_features = tf.placeholder(
-                    dtype=tf.float32, shape=[None, 4])
-            elif config['input_features'] == 'rgb':
-                t_initial_vertex_features = tf.placeholder(
-                    dtype=tf.float32, shape=[None, 3])
-            elif config['input_features'] == '0000':
-                t_initial_vertex_features = tf.placeholder(
-                    dtype=tf.float32, shape=[None, 4])
-            elif config['input_features'] == 'i000':
-                t_initial_vertex_features = tf.placeholder(
-                    dtype=tf.float32, shape=[None, 4])
-            elif config['input_features'] == 'i':
-                t_initial_vertex_features = tf.placeholder(
-                    dtype=tf.float32, shape=[None, 1])
-            elif config['input_features'] == '0':
-                t_initial_vertex_features = tf.placeholder(
-                    dtype=tf.float32, shape=[None, 1])
+            t_initial_vertex_features = tf.placeholder(dtype=tf.float32, shape=[None, 1])
 
             t_vertex_coord_list = [
                 tf.placeholder(dtype=tf.float32, shape=[None, 3])]

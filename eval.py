@@ -44,13 +44,13 @@ if 'eval' in config:
     config = config['eval']
 dataset = KittiDataset(
     os.path.join(DATASET_DIR, 'image/training/image_2'),
-    os.path.join(DATASET_DIR, 'velodyne/training/velodyne/'),
+    os.path.join(DATASET_DIR, 'velodyne/training/'),
     os.path.join(DATASET_DIR, 'calib/training/calib/'),
-    os.path.join(DATASET_DIR, 'labels/training/label_2'),
+    os.path.join(DATASET_DIR, 'labels/training/'),
     DATASET_SPLIT_FILE,
     num_classes=config['num_classes'])
 NUM_CLASSES = dataset.num_classes
-
+print(dataset)
 if 'NUM_TEST_SAMPLE' not in eval_config:
     NUM_TEST_SAMPLE = dataset.num_files
 else:
@@ -59,7 +59,6 @@ else:
     else:
         NUM_TEST_SAMPLE = eval_config['NUM_TEST_SAMPLE']
 
-print(NUM_TEST_SAMPLE)
 BOX_ENCODING_LEN = get_encoding_len(config['box_encoding_method'])
 box_encoding_fn = get_box_encoding_fn(config['box_encoding_method'])
 box_decoding_fn = get_box_decoding_fn(config['box_encoding_method'])
@@ -73,20 +72,7 @@ def fetch_data(frame_idx):
     graph_generate_fn= get_graph_generate_fn(config['graph_gen_method'])
     (vertex_coord_list, keypoint_indices_list, edges_list) = graph_generate_fn(
         cam_rgb_points.xyz, **config['graph_gen_kwargs'])
-    if config['input_features'] == 'irgb':
-        input_v = cam_rgb_points.attr
-    elif config['input_features'] == '0rgb':
-        input_v = np.hstack([np.zeros((cam_rgb_points.attr.shape[0], 1)),
-            cam_rgb_points.attr[:, 1:]])
-    elif config['input_features'] == '0000':
-        input_v = np.zeros_like(cam_rgb_points.attr)
-    elif config['input_features'] == 'i000':
-        input_v = np.hstack([cam_rgb_points.attr[:, [0]],
-            np.zeros((cam_rgb_points.attr.shape[0], 3))])
-    elif config['input_features'] == 'i':
-        input_v = cam_rgb_points.attr[:, [0]]
-    elif config['input_features'] == '0':
-        input_v = np.zeros((cam_rgb_points.attr.shape[0], 1))
+    input_v = cam_rgb_points.attr[:, [0]]
     last_layer_graph_level = config['model_kwargs'][
         'layer_configs'][-1]['graph_level']
     last_layer_points_xyz = vertex_coord_list[last_layer_graph_level+1]
@@ -117,24 +103,7 @@ def fetch_data(frame_idx):
         cls_labels, encoded_boxes, valid_boxes)
 
 # model =======================================================================
-if config['input_features'] == 'irgb':
-    t_initial_vertex_features = tf.placeholder(
-        dtype=tf.float32, shape=[None, 4])
-elif config['input_features'] == 'rgb':
-    t_initial_vertex_features = tf.placeholder(
-        dtype=tf.float32, shape=[None, 3])
-elif config['input_features'] == '0000':
-    t_initial_vertex_features = tf.placeholder(
-        dtype=tf.float32, shape=[None, 4])
-elif config['input_features'] == 'i000':
-    t_initial_vertex_features = tf.placeholder(
-        dtype=tf.float32, shape=[None, 4])
-elif config['input_features'] == 'i':
-    t_initial_vertex_features = tf.placeholder(
-        dtype=tf.float32, shape=[None, 1])
-elif config['input_features'] == '0':
-    t_initial_vertex_features = tf.placeholder(
-        dtype=tf.float32, shape=[None, 1])
+t_initial_vertex_features = tf.placeholder(dtype=tf.float32, shape=[None, 1])
 
 t_vertex_coord_list = [tf.placeholder(dtype=tf.float32, shape=[None, 3])]
 for _ in range(len(config['graph_gen_kwargs']['level_configs'])):
@@ -305,6 +274,7 @@ def eval_once(graph, gpu_options, saver, checkpoint_path):
         previous_step = sess.run(global_step)
         print('Global step = %d' % previous_step)
         start_time = time.time()
+        print("NUM_TEST_SAMPLE", NUM_TEST_SAMPLE)
         for frame_idx in range(NUM_TEST_SAMPLE):
             (input_v, vertex_coord_list, keypoint_indices_list, edges_list,
             cls_labels, encoded_boxes, valid_boxes)\

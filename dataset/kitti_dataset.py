@@ -224,8 +224,9 @@ class KittiDataset(object):
             +'label_dir=%s\n' % self._label_dir
             +'index_filename=%s\n' % self._index_filename
             +'Total number of sampels: %d\n' % self.num_files)
-        statics = self.get_statics()
-        return summary_string + statics
+        #statics = self.get_statics()
+        #return summary_string + statics
+        return summary_string
 
     def get_statics(self):
         import matplotlib.pyplot as plt
@@ -720,23 +721,26 @@ class KittiDataset(object):
                 line = line.strip()
                 if line == '':
                     continue
-                fields = line.split(' ')
-                label['name'] = fields[0]
-                # 0=visible 1=partly occluded, 2=fully occluded, 3=unknown
-                label['truncation'] = float(fields[1])
-                label['occlusion'] = int(fields[2])
-                label['alpha'] =  float(fields[3])
-                label['xmin'] =  float(fields[4])
-                label['ymin'] =  float(fields[5])
-                label['xmax'] =  float(fields[6])
-                label['ymax'] =  float(fields[7])
-                label['height'] =  float(fields[8])
-                label['width'] =  float(fields[9])
-                label['length'] =  float(fields[10])
-                label['x3d'] =  float(fields[11])
-                label['y3d'] =  float(fields[12])
-                label['z3d'] =  float(fields[13])
-                label['yaw'] =  float(fields[14])
+                try:
+                    fields = line.split(' ')
+                    label['name'] = fields[0]
+                    # 0=visible 1=partly occluded, 2=fully occluded, 3=unknown
+                    label['truncation'] = float(fields[1])
+                    label['occlusion'] = int(fields[2])
+                    label['alpha'] =  float(fields[3])
+                    label['xmin'] =  float(fields[4])
+                    label['ymin'] =  float(fields[5])
+                    label['xmax'] =  float(fields[6])
+                    label['ymax'] =  float(fields[7])
+                    label['height'] =  float(fields[8])
+                    label['width'] =  float(fields[9])
+                    label['length'] =  float(fields[10])
+                    label['x3d'] =  float(fields[11])
+                    label['y3d'] =  float(fields[12])
+                    label['z3d'] =  float(fields[13])
+                    label['yaw'] =  float(fields[14])
+                except: 
+                    print("label error:", label_file)
                 if len(fields) > 15:
                     label['score'] =  float(fields[15])
                 if self.difficulty > -1:

@@ -28,7 +28,6 @@
         ]
     },
     "graph_gen_method": "multi_level_local_graph_v3",
-    "input_features": "i",
     "label_method": "Pedestrian_and_Cyclist",
     "loss": {
         "cls_loss_type": "softmax",

@@ -69,17 +69,17 @@ config = load_config(CONFIG_PATH)
 if IS_TEST:
     dataset = KittiDataset(
         os.path.join(DATASET_DIR, 'image/testing/image_2'),
-        os.path.join(DATASET_DIR, 'velodyne/testing/velodyne/'),
-        os.path.join(DATASET_DIR, 'calib/testing/calib/'),
+        os.path.join(DATASET_DIR, 'velodyne/testing/'),
+        os.path.join(DATASET_DIR, 'calib/testing/calib'),
         '',
         num_classes=config['num_classes'],
         is_training=False)
 else:
     dataset = KittiDataset(
         os.path.join(DATASET_DIR, 'image/training/image_2'),
-        os.path.join(DATASET_DIR, 'velodyne/training/velodyne/'),
-        os.path.join(DATASET_DIR, 'calib/training/calib/'),
-        os.path.join(DATASET_DIR, 'labels/training/label_2'),
+        os.path.join(DATASET_DIR, 'velodyne/training/'),
+        os.path.join(DATASET_DIR, 'calib/training/calib'),
+        os.path.join(DATASET_DIR, 'labels/training'),
         DATASET_SPLIT_FILE,
         num_classes=config['num_classes'])
 NUM_TEST_SAMPLE = dataset.num_files
@@ -101,24 +101,7 @@ def occlusion(label, xyz):
 BOX_ENCODING_LEN = get_encoding_len(config['box_encoding_method'])
 box_encoding_fn = get_box_encoding_fn(config['box_encoding_method'])
 box_decoding_fn = get_box_decoding_fn(config['box_encoding_method'])
-if config['input_features'] == 'irgb':
-    t_initial_vertex_features = tf.placeholder(
-        dtype=tf.float32, shape=[None, 4])
-elif config['input_features'] == 'rgb':
-    t_initial_vertex_features = tf.placeholder(
-        dtype=tf.float32, shape=[None, 3])
-elif config['input_features'] == '0000':
-    t_initial_vertex_features = tf.placeholder(
-        dtype=tf.float32, shape=[None, 4])
-elif config['input_features'] == 'i000':
-    t_initial_vertex_features = tf.placeholder(
-        dtype=tf.float32, shape=[None, 4])
-elif config['input_features'] == 'i':
-    t_initial_vertex_features = tf.placeholder(
-        dtype=tf.float32, shape=[None, 1])
-elif config['input_features'] == '0':
-    t_initial_vertex_features = tf.placeholder(
-        dtype=tf.float32, shape=[None, 1])
+t_initial_vertex_features = tf.placeholder(dtype=tf.float32, shape=[None, 1])
 t_vertex_coord_list = [tf.placeholder(dtype=tf.float32, shape=[None, 3])]
 for _ in range(len(config['runtime_graph_gen_kwargs']['level_configs'])):
     t_vertex_coord_list.append(
@@ -154,19 +137,20 @@ if VISUALIZATION_LEVEL == 1:
     calib = dataset.get_calib(0)
     cam_points_in_img_with_rgb = dataset.get_cam_points_in_image_with_rgb(0,
         calib=calib)
-    vis = open3d.Visualizer()
+    vis = open3d.visualization.Visualizer()
     vis.create_window()
-    pcd = open3d.PointCloud()
-    pcd.points = open3d.Vector3dVector(cam_points_in_img_with_rgb.xyz)
-    pcd.colors = open3d.Vector3dVector(cam_points_in_img_with_rgb.attr[:,1:4])
-    line_set = open3d.LineSet()
-    graph_line_set = open3d.LineSet()
+    #pcd = open3d.PointCloud()
+    pcd = open3d.geometry.PointCloud()
+    pcd.points = open3d.utility.Vector3dVector(cam_points_in_img_with_rgb.xyz)
+    pcd.colors = open3d.utility.Vector3dVector(cam_points_in_img_with_rgb.attr[:,1:4])
+    line_set = open3d.geometry.LineSet()
+    graph_line_set = open3d.geometry.LineSet()
     box_corners = np.array([[0, 0, 0]])
     box_edges = np.array([[0,0]])
-    line_set.points = open3d.Vector3dVector(box_corners)
-    line_set.lines = open3d.Vector2iVector(box_edges)
-    graph_line_set.points = open3d.Vector3dVector(box_corners)
-    graph_line_set.lines = open3d.Vector2iVector(box_edges)
+    line_set.points = open3d.utility.Vector3dVector(box_corners)
+    line_set.lines = open3d.utility.Vector2iVector(box_edges)
+    graph_line_set.points = open3d.utility.Vector3dVector(box_corners)
+    graph_line_set.lines = open3d.utility.Vector2iVector(box_edges)
     vis.add_geometry(pcd)
     vis.add_geometry(line_set)
     vis.add_geometry(graph_line_set)
@@ -188,6 +172,11 @@ gt_color_map = {
     'Cyclist': (255,165,0),
 }
 # runing network ==============================================================
+print("runing network....")
+from tensorflow.python.client import device_lib
+
+print("gpu: ",device_lib.list_local_devices())
+print(dataset)
 time_dict = {}
 saver = tf.train.Saver()
 graph = tf.get_default_graph()
@@ -204,8 +193,8 @@ with tf.Session(graph=graph,
         start_time = time.time()
         if VISUALIZATION_LEVEL == 2:
             pcd = open3d.PointCloud()
-            line_set = open3d.LineSet()
-            graph_line_set = open3d.LineSet()
+            line_set = open3d.geometry.LineSet()
+            graph_line_set = open3d.geometry.LineSet()
         # provide input ======================================================
         cam_rgb_points = dataset.get_cam_points_in_image_with_rgb(frame_idx,
             config['downsample_by_voxel_size'])
@@ -223,20 +212,8 @@ with tf.Session(graph=graph,
         graph_time = time.time()
         time_dict['gen graph'] = time_dict.get('gen graph', 0) \
             + graph_time - input_time
-        if config['input_features'] == 'irgb':
-            input_v = cam_rgb_points.attr
-        elif config['input_features'] == '0rgb':
-            input_v = np.hstack([np.zeros((cam_rgb_points.attr.shape[0], 1)),
-                cam_rgb_points.attr[:, 1:]])
-        elif config['input_features'] == '0000':
-            input_v = np.zeros_like(cam_rgb_points.attr)
-        elif config['input_features'] == 'i000':
-            input_v = np.hstack([cam_rgb_points.attr[:, [0]], np.zeros(
-                (cam_rgb_points.attr.shape[0], 3))])
-        elif config['input_features'] == 'i':
-            input_v = cam_rgb_points.attr[:, [0]]
-        elif config['input_features'] == '0':
-            input_v = np.zeros((cam_rgb_points.attr.shape[0], 1))
+        input_v = cam_rgb_points.attr[:, [0]]
+        
         last_layer_graph_level = \
             config['model_kwargs']['layer_configs'][-1]['graph_level']
         last_layer_points_xyz = vertex_coord_list[last_layer_graph_level+1]
@@ -330,10 +307,10 @@ with tf.Session(graph=graph,
                     (last_layer_points_xyz.shape[0], 3), dtype=np.float32)
                 last_layer_points_color[:, :] =  color_map[raw_box_labels, :]
                 cam_points_color = cam_rgb_points.attr[:, 1:]
-                pcd.points = open3d.Vector3dVector(np.vstack(
+                pcd.points = open3d.utility.Vector3dVector(np.vstack(
                     [last_layer_points_xyz[box_indices][nms_indices],
                     last_layer_points_xyz, cam_rgb_points.xyz]))
-                pcd.colors = open3d.Vector3dVector(np.vstack(
+                pcd.colors = open3d.utility.Vector3dVector(np.vstack(
                     [last_layer_points_color[box_indices][nms_indices],
                     np.tile([(1,0.,200./255)],
                         (last_layer_points_color.shape[0], 1)),
@@ -355,8 +332,8 @@ with tf.Session(graph=graph,
                 last_layer_edges += last_layer_points_xyz.shape[0]
                 lines = last_layer_edges
                 graph_line_set.points = pcd.points
-                graph_line_set.lines = open3d.Vector2iVector(lines)
-                graph_line_set.colors = open3d.Vector3dVector(colors)
+                graph_line_set.lines = open3d.utility.Vector2iVector(lines)
+                graph_line_set.colors = open3d.utility.Vector3dVector(colors)
             # convert to KITTI ================================================
             detection_boxes_3d_corners = nms.boxes_3d_to_corners(
                 detection_boxes_3d)
@@ -462,16 +439,16 @@ with tf.Session(graph=graph,
                 box_corners = np.array([[0, 0, 0]])
                 box_edges = np.array([[0, 0]])
                 box_colors =  np.array([[0, 0, 0]])
-                pcd.points = open3d.Vector3dVector(np.vstack([
+                pcd.points = open3d.utility.Vector3dVector(np.vstack([
                     last_layer_points_xyz, cam_rgb_points.xyz]))
-                pcd.colors = open3d.Vector3dVector(np.vstack([np.tile(
+                pcd.colors = open3d.utility.Vector3dVector(np.vstack([np.tile(
                     [(128./255,0.,128./255)],
                     (last_layer_points_color.shape[0], 1)), cam_points_color]))
-                graph_line_set.points = open3d.Vector3dVector(
+                graph_line_set.points = open3d.utility.Vector3dVector(
                     np.array([[0, 0, 0]]))
-                graph_line_set.lines = open3d.Vector2iVector(
+                graph_line_set.lines = open3d.utility.Vector2iVector(
                     [[0, 0]])
-                graph_line_set.colors = open3d.Vector3dVector(
+                graph_line_set.colors = open3d.utility.Vector3dVector(
                     np.array([[0, 0, 0]]))
                 if not IS_TEST:
                     gt_boxes = []
@@ -504,18 +481,18 @@ with tf.Session(graph=graph,
             cv2.waitKey(10)
             if not IS_TEST:
                 box_edges += gt_box_corners.shape[0]
-                line_set.points = open3d.Vector3dVector(np.vstack(
+                line_set.points = open3d.utility.Vector3dVector(np.vstack(
                     [gt_box_corners, box_corners]))
-                line_set.lines = open3d.Vector2iVector(np.vstack(
+                line_set.lines = open3d.utility.Vector2iVector(np.vstack(
                     [gt_box_edges, box_edges]))
-                line_set.colors = open3d.Vector3dVector(np.vstack(
+                line_set.colors = open3d.utility.Vector3dVector(np.vstack(
                     [gt_box_colors, box_colors]))
             else:
-                line_set.points = open3d.Vector3dVector(np.vstack(
+                line_set.points = open3d.utility.Vector3dVector(np.vstack(
                     [box_corners]))
-                line_set.lines = open3d.Vector2iVector(np.vstack(
+                line_set.lines = open3d.utility.Vector2iVector(np.vstack(
                     [box_edges]))
-                line_set.colors = open3d.Vector3dVector(np.vstack(
+                line_set.colors = open3d.utility.Vector3dVector(np.vstack(
                     [box_colors]))
         if VISUALIZATION_LEVEL == 1:
             vis.update_geometry()

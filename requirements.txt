@@ -1,0 +1,8 @@
+opencv-python
+open3d
+scikit-learn
+tqdm
+shapely
+
+# apt update
+# apt install libgl1-mesa-glx
