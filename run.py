@@ -25,14 +25,6 @@ from util.summary_util import write_summary_scale
 parser = argparse.ArgumentParser(description='Point-GNN inference on KITTI')
 parser.add_argument('checkpoint_path', type=str,
                    help='Path to checkpoint')
-parser.add_argument('--test', dest='test', action='store_true',
-                    default=False, help='Enable test model')
-parser.add_argument('--no-box-merge', dest='use_box_merge',
-                    action='store_false', default='True',
-                   help='Disable box merge.')
-parser.add_argument('--no-box-score', dest='use_box_score',
-                    action='store_false', default='True',
-                   help='Disable box score.')
 parser.add_argument('--dataset_root_dir', type=str, default='../dataset/kitti/',
                    help='Path to KITTI dataset. Default="../dataset/kitti/"')
 parser.add_argument('--output_dir', type=str,
@@ -40,9 +32,7 @@ parser.add_argument('--output_dir', type=str,
                    help='Path to save the detection results'
                    'Default="CHECKPOINT_PATH/eval/"')
 args = parser.parse_args()
-IS_TEST = args.test
-USE_BOX_MERGE = args.use_box_merge
-USE_BOX_SCORE = args.use_box_score
+
 DATASET_DIR = args.dataset_root_dir
 if args.output_dir == '':
     OUTPUT_DIR = os.path.join(args.checkpoint_path, './eval/')
@@ -53,19 +43,13 @@ CONFIG_PATH = os.path.join(CHECKPOINT_PATH, 'config')
 assert os.path.isfile(CONFIG_PATH), 'No config file found in %s'
 config = load_config(CONFIG_PATH)
 # setup dataset ===============================================================
-if IS_TEST:
-    dataset = KittiDataset(
-        os.path.join(DATASET_DIR, 'velodyne/testing/'),
-        os.path.join(DATASET_DIR, 'calib/testing/calib'),
-        "",
-        num_classes=config['num_classes'],
-        is_training=False)
-else:
-    dataset = KittiDataset(
-        os.path.join(DATASET_DIR, 'velodyne/training/'),
-        os.path.join(DATASET_DIR, 'calib/training/calib'),
-        os.path.join(DATASET_DIR, 'labels/training'),
-        num_classes=config['num_classes'])
+
+dataset = KittiDataset(
+    os.path.join(DATASET_DIR, 'velodyne/testing/'),
+    "",
+    num_classes=config['num_classes'],
+    is_training=False)
+
 NUM_TEST_SAMPLE = dataset.num_files
 NUM_CLASSES = dataset.num_classes
 try:
@@ -151,9 +135,6 @@ with tf.Session(graph=graph,
         cam_points = dataset.get_cam_points_in_image(frame_idx,
             config['downsample_by_voxel_size'])
         
-        calib = dataset.get_calib(frame_idx)
-        if not IS_TEST:
-            box_label_list = dataset.get_label(frame_idx)
         input_time = time.time()
         time_dict['fetch input'] = time_dict.get('fetch input', 0) \
             + input_time - start_time
@@ -220,38 +201,13 @@ with tf.Session(graph=graph,
             box_labels[box_labels==6]=5
             detection_scores = box_probs
             # nms ============================================================
-            if USE_BOX_MERGE and USE_BOX_SCORE:
-                (class_labels, detection_boxes_3d, detection_scores,
-                nms_indices) = nms.nms_boxes_3d_uncertainty(
-                    box_labels, decoded_boxes, detection_scores,
-                    overlapped_fn=nms.overlapped_boxes_3d_fast_poly,
-                    overlapped_thres=config['nms_overlapped_thres'],
-                    appr_factor=100.0, top_k=-1,
-                    attributes=np.arange(len(box_indices)))
-            if USE_BOX_MERGE and not USE_BOX_SCORE:
-                (class_labels, detection_boxes_3d, detection_scores,
-                nms_indices) = nms.nms_boxes_3d_merge_only(
-                    box_labels, decoded_boxes, detection_scores,
-                    overlapped_fn=nms.overlapped_boxes_3d_fast_poly,
-                    overlapped_thres=config['nms_overlapped_thres'],
-                    appr_factor=100.0, top_k=-1,
-                    attributes=np.arange(len(box_indices)))
-            if not USE_BOX_MERGE and USE_BOX_SCORE:
-                (class_labels, detection_boxes_3d, detection_scores,
-                nms_indices) = nms.nms_boxes_3d_score_only(
-                    box_labels, decoded_boxes, detection_scores,
-                    overlapped_fn=nms.overlapped_boxes_3d_fast_poly,
-                    overlapped_thres=config['nms_overlapped_thres'],
-                    appr_factor=100.0, top_k=-1,
-                    attributes=np.arange(len(box_indices)))
-            if not USE_BOX_MERGE and not USE_BOX_SCORE:
-                (class_labels, detection_boxes_3d, detection_scores,
-                nms_indices) = nms.nms_boxes_3d(
-                    box_labels, decoded_boxes, detection_scores,
-                    overlapped_fn=nms.overlapped_boxes_3d_fast_poly,
-                    overlapped_thres=config['nms_overlapped_thres'],
-                    appr_factor=100.0, top_k=-1,
-                    attributes=np.arange(len(box_indices)))
+            (class_labels, detection_boxes_3d, detection_scores,
+            nms_indices) = nms.nms_boxes_3d_uncertainty(
+                box_labels, decoded_boxes, detection_scores,
+                overlapped_fn=nms.overlapped_boxes_3d_fast_poly,
+                overlapped_thres=config['nms_overlapped_thres'],
+                appr_factor=100.0, top_k=-1,
+                attributes=np.arange(len(box_indices)))
             box_probs = detection_scores
             
             # convert to KITTI ================================================
@@ -262,45 +218,35 @@ with tf.Session(graph=graph,
                 detection_box_3d_corners = detection_boxes_3d_corners[i]
                 corners_cam_points = Points(
                     xyz=detection_box_3d_corners, attr=None)
-                corners_img_points = dataset.cam_points_to_image(
-                    corners_cam_points, calib)
-                corners_xy = corners_img_points.xyz[:, :2]
-                if config['label_method'] == 'yaw':
-                    all_class_name = ['Background', 'Car', 'Car', 'Pedestrian',
-                        'Pedestrian', 'Cyclist', 'Cyclist', 'DontCare']
                 if config['label_method'] == 'Car':
                     all_class_name = ['Background', 'Car', 'Car', 'DontCare']
                 if config['label_method'] == 'Pedestrian_and_Cyclist':
                     all_class_name = ['Background', 'Pedestrian', 'Pedestrian',
                         'Cyclist', 'Cyclist', 'DontCare']
-                if config['label_method'] == 'alpha':
-                    all_class_name = ['Background', 'Car', 'Car', 'Pedestrian',
-                        'Pedestrian', 'Cyclist', 'Cyclist', 'DontCare']
                 class_name = all_class_name[class_labels[i]]
-                xmin, ymin = np.amin(corners_xy, axis=0)
-                xmax, ymax = np.amax(corners_xy, axis=0)
+                xmin, ymin = (-1,-1) # fake value
+                xmax, ymax = (1,1) # fake value
                 clip_xmin = max(xmin, 0.0)
                 clip_ymin = max(ymin, 0.0)
                 clip_xmax = min(xmax, 1242.0)
                 clip_ymax = min(ymax, 375.0)
                 height = clip_ymax - clip_ymin
-                truncation_rate = 1.0 - (clip_ymax - clip_ymin)*(
+                """truncation_rate = 1.0 - (clip_ymax - clip_ymin)*(
                     clip_xmax - clip_xmin)/((ymax - ymin)*(xmax - xmin))
                 if truncation_rate > 0.4:
-                    continue
+                    continue"""
                 x3d, y3d, z3d, l, h, w, yaw = detection_boxes_3d[i]
                 assert l > 0, str(i)
                 score = box_probs[i]
-                if USE_BOX_SCORE:
-                    tmp_label = {"x3d": x3d, "y3d" : y3d, "z3d": z3d,
-                    "yaw": yaw, "height": h, "width": w, "length": l}
-                    # Rescore or not ===========================================
-                    inside_mask = dataset.sel_xyz_in_box3d(tmp_label,
-                        last_layer_points_xyz[box_indices])
-                    points_inside = last_layer_points_xyz[
-                        box_indices][inside_mask]
-                    score_inside = box_probs_ori[inside_mask]
-                    score = (1+occlusion(tmp_label, points_inside))*score
+                tmp_label = {"x3d": x3d, "y3d" : y3d, "z3d": z3d,
+                "yaw": yaw, "height": h, "width": w, "length": l}
+                # Rescore or not ===========================================
+                inside_mask = dataset.sel_xyz_in_box3d(tmp_label,
+                    last_layer_points_xyz[box_indices])
+                points_inside = last_layer_points_xyz[
+                    box_indices][inside_mask]
+                score_inside = box_probs_ori[inside_mask]
+                score = (1+occlusion(tmp_label, points_inside))*score
                 pred_labels.append((class_name, -1, -1, 0,
                     clip_xmin, clip_ymin, clip_xmax, clip_ymax,
                     h, w, l, x3d, y3d, z3d, yaw, score))

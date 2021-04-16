@@ -12,9 +12,7 @@ import numpy as np
 import open3d
 import cv2
 
-## to-do: remove image input
-width = 1242
-height = 375
+
 Points = namedtuple('Points', ['xyz', 'attr'])
 
 def downsample_by_average_voxel(points, voxel_size):
@@ -189,32 +187,36 @@ def sel_xyz_in_box2d(label, xyz, expend_factor=(1.0, 1.0, 1.0)):
 class KittiDataset(object):
     """A class to interact with KITTI dataset."""
 
-    def __init__(self, point_dir, calib_dir, label_dir, is_training=True,
+    def __init__(self, point_dir, label_dir, is_training=True,
                  is_raw=False, difficulty=-100,
         num_classes=8):
         """
         Args:
             point_dir: a string of the path to point cloud data folder.
-            calib_dir: a string of the path to the calibration matrices.
             label_dir: a string of the path to the label folder.
         """
         self._point_dir = point_dir
-        self._calib_dir = calib_dir
         self._label_dir = label_dir
         self._file_list = self._get_file_index(self._point_dir)
         self._verify_file_list(
-            self._point_dir, self._label_dir, self._calib_dir,
+            self._point_dir, self._label_dir,
             self._file_list, is_training, is_raw)
         self._is_training = is_training
         self._is_raw = is_raw
         self.num_classes = num_classes
         self.difficulty = difficulty
+        # to-do: remove all calib
+        self.calib = np.array(
+            [[ 2.34773604e-04, -9.99944129e-01, -1.05634776e-02,  5.70524492e-02],
+            [ 1.04494081e-02,  1.05653538e-02, -9.99889606e-01, -7.54667181e-02],
+            [ 9.99945368e-01,  1.24365346e-04,  1.04513032e-02, -2.69386924e-01],
+            [ 0.00000000e+00,  0.00000000e+00,  0.00000000e+00,  1.00000000e+00]]
+            )
 
     def __str__(self):
         """Generate a string summary of the dataset"""
         summary_string = ('Dataset Summary:\n'
             +'point_dir=%s\n' % self._point_dir
-            +'calib_dir=%s\n' % self._calib_dir
             +'label_dir=%s\n' % self._label_dir
             +'Total number of sampels: %d\n' % self.num_files)
         #statics = self.get_statistics()
@@ -258,8 +260,6 @@ class KittiDataset(object):
         image_width = []
         for frame_idx in range(self.num_files):
             labels = self.get_label(frame_idx)
-            calib = self.get_calib(frame_idx)
-            image = self.get_image(frame_idx)
             image_height.append(image.shape[0])
             image_width.append(image.shape[1])
             for label in labels:
@@ -294,8 +294,6 @@ class KittiDataset(object):
                         detection_boxes_3d)
                     corners_cam_points = Points(
                         xyz=detection_boxes_3d_corners[0], attr=None)
-                    corners_img_points = self.cam_points_to_image(
-                        corners_cam_points, calib)
                     corners_xy = corners_img_points.xyz[:, :2]
                     xmin, ymin = np.amin(corners_xy, axis=0)
                     xmax, ymax = np.amax(corners_xy, axis=0)
@@ -381,14 +379,13 @@ class KittiDataset(object):
 
 
     def _verify_file_list(
-        self, point_dir, label_dir, calib_dir, file_list,
+        self, point_dir, label_dir, file_list,
         is_training, is_raw):
         """Varify the files in file_list exist.
 
         Args:
             point_dir: a string of the path to point cloud data folder.
             label_dir: a string of the path to the label folder.
-            calib_dir: a string of the path to the calibration folder.
             file_list: a list of filenames.
             is_training: if False, label_dir is not verified.
 
@@ -398,11 +395,7 @@ class KittiDataset(object):
         for f in file_list:
             point_file = join(point_dir, f)+'.bin'
             label_file = join(label_dir, f)+'.txt'
-            calib_file = join(calib_dir, f)+'.txt'
             assert isfile(point_file), "Point %s does not exist" % point_file
-            if not is_raw:
-                assert isfile(calib_file), \
-                    "Calib %s does not exist" % calib_file
             if is_training:
                 assert isfile(label_file), \
                     "Label %s does not exist" % label_file
@@ -455,100 +448,6 @@ class KittiDataset(object):
             return Points(xyz=np.vstack(downsampled_xyz_list),
                 attr=None)
 
-    def get_calib(self, frame_idx):
-        """Load calibration matrices and compute calibrations.
-
-        Args:
-            frame_idx: the index of the frame to read.
-
-        Returns: a dictionary of calibrations.
-        """
-
-        calib_file = join(self._calib_dir, self._file_list[frame_idx])+'.txt'
-        with open(calib_file, 'r') as f:
-            calib = {}
-            for line in f:
-                fields = line.split(' ')
-                matrix_name = fields[0].rstrip(':')
-                matrix = np.array(fields[1:], dtype=np.float32)
-                calib[matrix_name] = matrix
-        calib['P2'] = calib['P2'].reshape(3, 4)
-        calib['R0_rect'] = calib['R0_rect'].reshape(3,3)
-        calib['Tr_velo_to_cam'] = calib['Tr_velo_to_cam'].reshape(3,4)
-        R0_rect = np.eye(4)
-        R0_rect[:3, :3] = calib['R0_rect']
-        calib['velo_to_rect'] = np.vstack([calib['Tr_velo_to_cam'],[0,0,0,1]])
-        calib['cam_to_image'] = np.hstack([calib['P2'][:, 0:3], [[0],[0],[0]]])
-        calib['rect_to_cam'] = np.hstack([
-            calib['R0_rect'],
-            np.matmul(
-                np.linalg.inv(calib['P2'][:, 0:3]), calib['P2'][:, [3]])])
-        calib['rect_to_cam'] = np.vstack([calib['rect_to_cam'],
-            [0,0,0,1]])
-        calib['velo_to_cam'] = np.matmul(calib['rect_to_cam'],
-            calib['velo_to_rect'])
-        calib['cam_to_velo'] = np.linalg.inv(calib['velo_to_cam'])
-        # senity check
-        calib['velo_to_image'] = np.matmul(calib['cam_to_image'],
-            calib['velo_to_cam'])
-        assert np.isclose(calib['velo_to_image'],
-            np.matmul(np.matmul(calib['P2'], R0_rect),
-            calib['velo_to_rect'])).all()
-        return calib
-
-    def get_raw_calib(self, calib_velo_to_cam_path, calib_cam_to_cam_path):
-        """Read calibrations in kitti raw dataset."""
-        with open(calib_cam_to_cam_path, 'r') as f:
-            calib = {}
-            for line in f:
-                line = line.rstrip('\n')
-                fields = line.split(':')
-                calib[fields[0]] = fields[1]
-        calib['corner_dist'] = np.array(
-            calib['corner_dist'], dtype=np.float32)
-        for i in range(4):
-            calib['S_0%d'%i] = np.array(
-                calib['S_0%d'%i].split(' ')[1:], dtype=np.float32).reshape(1,2)
-            calib['K_0%d'%i] = np.array(
-                calib['K_0%d'%i].split(' ')[1:], dtype=np.float32).reshape(3,3)
-            calib['D_0%d'%i] = np.array(
-                calib['D_0%d'%i].split(' ')[1:], dtype=np.float32).reshape(1,5)
-            calib['R_0%d'%i] = np.array(
-                calib['R_0%d'%i].split(' ')[1:], dtype=np.float32).reshape(3,3)
-            calib['T_0%d'%i] = np.array(
-                calib['T_0%d'%i].split(' ')[1:], dtype=np.float32).reshape(3,1)
-            calib['S_rect_0%d'%i] = np.array(
-                calib['S_rect_0%d'%i].split(' ')[1:],
-                    dtype=np.float32).reshape(1,2)
-            calib['R_rect_0%d'%i] = np.array(
-                calib['R_rect_0%d'%i].split(' ')[1:],
-                    dtype=np.float32).reshape(3,3)
-            calib['P_rect_0%d'%i] = np.array(
-                calib['P_rect_0%d'%i].split(' ')[1:],
-                    dtype=np.float32).reshape(3,4)
-        with open(calib_velo_to_cam_path, 'r') as f:
-            for line in f:
-                line = line.rstrip('\n')
-                fields = line.split(':')
-                calib[fields[0]] = fields[1]
-        calib['R'] = np.array(
-            calib['R'].split(' ')[1:], dtype=np.float32).reshape(3,3)
-        calib['T'] = np.array(
-            calib['T'].split(' ')[1:], dtype=np.float32).reshape(3,1)
-        calib['Tr_velo_to_cam'] = np.vstack(
-            [np.hstack([calib['R'], calib['T']]),[0,0,0,1]])
-
-        R0_rect = np.eye(4)
-        R0_rect[:3, :3] = calib['R_rect_00']
-        T2 = np.eye(4)
-        T2[0, 3] = calib['P_rect_02'][0, 3]/calib['P_rect_02'][0, 0]
-        calib['velo_to_cam'] = T2.dot(R0_rect.dot(calib['Tr_velo_to_cam']))
-        calib['cam_to_image'] = np.hstack(
-            [calib['P_rect_02'][:, 0:3], [[0],[0],[0]]])
-        calib['velo_to_image'] = np.matmul(calib['cam_to_image'],
-            calib['velo_to_cam'])
-        return calib
-
     def get_filename(self, frame_idx):
         """Get the filename based on frame_idx.
 
@@ -584,7 +483,7 @@ class KittiDataset(object):
         return Points(xyz = velo_points, attr = reflections)
 
     def get_cam_points(self, frame_idx,
-        downsample_voxel_size=None, calib=None, xyz_range=None):
+        downsample_voxel_size=None, xyz_range=None):
         """Load velo points and convert them to camera coordinates.
 
         Args:
@@ -593,9 +492,7 @@ class KittiDataset(object):
         Returns: Points.
         """
         velo_points = self.get_velo_points(frame_idx, xyz_range=xyz_range)
-        if calib is None:
-            calib = self.get_calib(frame_idx)
-        cam_points = self.velo_points_to_cam(velo_points, calib)
+        cam_points = self.velo_points_to_cam(velo_points)
         if downsample_voxel_size is not None:
             cam_points = downsample_by_average_voxel(cam_points,
                 downsample_voxel_size)
@@ -619,22 +516,9 @@ class KittiDataset(object):
         calib=None, xyz_range=None):
         """Load velo points and remove points that are not observed by camera.
         """
-        if calib is None:
-            calib = self.get_calib(frame_idx)
-        cam_points = self.get_cam_points(frame_idx, downsample_voxel_size,
-            calib=calib, xyz_range=xyz_range)
-        
-        front_cam_points_idx = cam_points.xyz[:,2] > 0.1
-        front_cam_points = Points(cam_points.xyz[front_cam_points_idx, :],
-            cam_points.attr[front_cam_points_idx, :])
-        img_points = self.cam_points_to_image(front_cam_points, calib)
-        img_points_in_image_idx = np.logical_and.reduce(
-            [img_points.xyz[:,0]>0, img_points.xyz[:,0]<width,
-             img_points.xyz[:,1]>0, img_points.xyz[:,1]<height])
-        cam_points_in_img = Points(
-            xyz = front_cam_points.xyz[img_points_in_image_idx,:],
-            attr = front_cam_points.attr[img_points_in_image_idx,:])
-        return cam_points_in_img
+        cam_points = self.get_cam_points(frame_idx, downsample_voxel_size, xyz_range=xyz_range)
+
+        return cam_points
 
     def get_label(self, frame_idx, no_orientation=False):
         """Load bbox labels from frame_idx frame.
@@ -926,83 +810,15 @@ class KittiDataset(object):
         mask = np.logical_and.reduce((points_in_x, points_in_y, points_in_z))
         return mask
 
-    def rgb_to_cam_points(self, points, image, calib):
-        """Append rgb info to camera points"""
-        img_points = self.cam_points_to_image(points, calib)
-        rgb = image[np.int32(img_points.xyz[:,1]),
-            np.int32(img_points.xyz[:,0]),::-1].astype(np.float32)/255
-        return Points(points.xyz, np.hstack([points.attr, rgb]))
-
-    def velo_points_to_cam(self, points, calib):
+    def velo_points_to_cam(self, points):
         """Convert points in velodyne coordinates to camera coordinates.
 
         """
         cam_xyz = np.matmul(points.xyz,
-            np.transpose(calib['velo_to_cam'])[:3,:3].astype(np.float32))
-        cam_xyz += np.transpose(
-            calib['velo_to_cam'])[[3], :3].astype(np.float32)
+            np.transpose(self.calib)[:3,:3].astype(np.float32))
+        cam_xyz += np.transpose(self.calib)[[3], :3].astype(np.float32)
         return Points(xyz = cam_xyz, attr = points.attr)
 
-    def velo_to_cam(self, points_xyz, calib):
-        """Convert points in velodyne coordinates to camera coordinates.
-
-        """
-
-        velo_xyz1 = np.hstack([points_xyz, np.ones([points_xyz.shape[0],1])])
-        cam_xyz = np.transpose(
-            np.matmul(calib['velo_to_cam'], np.transpose(velo_xyz1))[:3, :])
-        return cam_xyz
-
-    def cam_points_to_velo(self, points, calib):
-        """Convert points from camera coordinates to velodyne coordinates.
-
-        Args:
-            points: a [N, 3] float32 numpy array.
-
-        Returns: a [N, 3] float32 numpy array.
-        """
-
-        cam_xyz1 = np.hstack([points.xyz, np.ones([points.xyz.shape[0],1])])
-        velo_xyz = np.matmul(cam_xyz1, np.transpose(calib['cam_to_velo']))[:,:3]
-        return Points(xyz = velo_xyz, attr = points.attr)
-
-    def cam_to_velo(self, points_xyz, calib):
-        cam_xyz1 = np.hstack([points_xyz, np.ones([points_xyz.shape[0],1])])
-        velo_xyz = np.matmul(cam_xyz1, np.transpose(calib['cam_to_velo']))[:,:3]
-        return velo_xyz
-
-    def cam_points_to_image(self, points, calib):
-        """Convert camera points to image plane.
-        Args:
-            points: a [N, 3] float32 numpy array.
-        Returns: points on image plane: a [M, 2] float32 numpy array,
-                  a mask indicating points: a [N, 1] boolean numpy array.
-        """
-
-        cam_points_xyz1 = np.hstack(
-            [points.xyz, np.ones([points.xyz.shape[0],1])])
-        img_points_xyz = np.matmul(
-            cam_points_xyz1, np.transpose(calib['cam_to_image']))
-        img_points_xy1 = img_points_xyz/img_points_xyz[:,[2]]
-        img_points = Points(img_points_xy1, points.attr)
-        return img_points
-
-    def velo_points_to_image(self, points, calib):
-        """Convert points from velodyne coordinates to image coordinates. Points
-        that behind the camera is removed.
-
-        Args:
-            points: a [N, 3] float32 numpy array.
-
-        Returns: points on image plane: a [M, 2] float32 numpy array,
-                 a mask indicating points: a [N, 1] boolean numpy array.
-        """
-
-        cam_points = self.velo_points_to_cam(points, calib)
-        img_points = self.cam_points_to_image(cam_points, calib)
-        return img_points
-
-    
     def assign_classaware_label_to_points(self, labels, xyz, expend_factor):
         """Assign class label and bounding boxes to xyz points. """
         assert self.num_classes == 8

@@ -34,7 +34,6 @@ if 'eval' in config:
     config = config['eval']
 dataset = KittiDataset(
     os.path.join(DATASET_DIR, 'velodyne/val/'),
-    os.path.join(DATASET_DIR, 'calib/training/calib/'),
     os.path.join(DATASET_DIR, 'labels/val/'),
     num_classes=config['num_classes'])
 NUM_CLASSES = dataset.num_classes

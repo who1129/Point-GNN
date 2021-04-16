@@ -29,11 +29,6 @@ parser.add_argument('config_path', type=str,
                    help='Path to config')
 parser.add_argument('--dataset_root_dir', type=str, default='../dataset/kitti/',
                    help='Path to KITTI dataset. Default="../dataset/kitti/"')
-parser.add_argument('--dataset_split_file', type=str,
-                    default='',
-                   help='Path to KITTI dataset split file.'
-                   'Default="DATASET_ROOT_DIR/3DOP_splits'
-                   '/train_config["train_dataset"]"')
 
 args = parser.parse_args()
 train_config = load_train_config(args.train_config_path)
@@ -50,11 +45,8 @@ else:
     config = config_complete
 # input function ==============================================================
 dataset = KittiDataset(
-    os.path.join(DATASET_DIR, 'image/training/image_2'),
     os.path.join(DATASET_DIR, 'velodyne/training/velodyne/'),
-    os.path.join(DATASET_DIR, 'calib/training/calib/'),
     os.path.join(DATASET_DIR, 'labels/training/label_2'),
-    DATASET_SPLIT_FILE,
     num_classes=config['num_classes'])
 NUM_CLASSES = dataset.num_classes
 
