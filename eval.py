@@ -21,19 +21,9 @@ parser.add_argument('eval_config_path', type=str,
                    help='Path to train_config')
 parser.add_argument('--dataset_root_dir', type=str, default='../dataset/kitti/',
                    help='Path to KITTI dataset. Default="../dataset/kitti/"')
-parser.add_argument('--dataset_split_file', type=str,
-                    default='',
-                   help='Path to KITTI dataset split file.'
-                   'Default="DATASET_ROOT_DIR/3DOP_splits'
-                   '/eval_config["eval_dataset"]"')
 args = parser.parse_args()
 eval_config = load_train_config(args.eval_config_path)
 DATASET_DIR = args.dataset_root_dir
-if args.dataset_split_file == '':
-    DATASET_SPLIT_FILE = os.path.join(DATASET_DIR,
-        './3DOP_splits/'+eval_config['eval_dataset'])
-else:
-    DATASET_SPLIT_FILE = args.dataset_split_file
 
 config_path = os.path.join(eval_config['train_dir'], eval_config['config_path'])
 while not os.path.isfile(config_path):
@@ -43,11 +33,9 @@ config = load_config(config_path)
 if 'eval' in config:
     config = config['eval']
 dataset = KittiDataset(
-    os.path.join(DATASET_DIR, 'image/training/image_2'),
-    os.path.join(DATASET_DIR, 'velodyne/training/'),
+    os.path.join(DATASET_DIR, 'velodyne/val/'),
     os.path.join(DATASET_DIR, 'calib/training/calib/'),
-    os.path.join(DATASET_DIR, 'labels/training/'),
-    DATASET_SPLIT_FILE,
+    os.path.join(DATASET_DIR, 'labels/val/'),
     num_classes=config['num_classes'])
 NUM_CLASSES = dataset.num_classes
 print(dataset)
@@ -65,14 +53,14 @@ box_decoding_fn = get_box_decoding_fn(config['box_encoding_method'])
 
 aug_fn = preprocess.get_data_aug(eval_config['data_aug_configs'])
 def fetch_data(frame_idx):
-    cam_rgb_points = dataset.get_cam_points_in_image_with_rgb(frame_idx,
+    cam_points = dataset.get_cam_points_in_image(frame_idx,
         config['downsample_by_voxel_size'])
     box_label_list = dataset.get_label(frame_idx)
-    cam_rgb_points, box_label_list = aug_fn(cam_rgb_points, box_label_list)
+    cam_points, box_label_list = aug_fn(cam_points, box_label_list)
     graph_generate_fn= get_graph_generate_fn(config['graph_gen_method'])
     (vertex_coord_list, keypoint_indices_list, edges_list) = graph_generate_fn(
-        cam_rgb_points.xyz, **config['graph_gen_kwargs'])
-    input_v = cam_rgb_points.attr[:, [0]]
+        cam_points.xyz, **config['graph_gen_kwargs'])
+    input_v = cam_points.attr[:, [0]]
     last_layer_graph_level = config['model_kwargs'][
         'layer_configs'][-1]['graph_level']
     last_layer_points_xyz = vertex_coord_list[last_layer_graph_level+1]

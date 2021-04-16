@@ -35,10 +35,6 @@ parser.add_argument('--no-box-score', dest='use_box_score',
                    help='Disable box score.')
 parser.add_argument('--dataset_root_dir', type=str, default='../dataset/kitti/',
                    help='Path to KITTI dataset. Default="../dataset/kitti/"')
-parser.add_argument('--dataset_split_file', type=str,
-                    default='',
-                   help='Path to KITTI dataset split file.'
-                   'Default="DATASET_ROOT_DIR/3DOP_splits/val.txt"')
 parser.add_argument('--output_dir', type=str,
                     default='',
                    help='Path to save the detection results'
@@ -48,10 +44,6 @@ IS_TEST = args.test
 USE_BOX_MERGE = args.use_box_merge
 USE_BOX_SCORE = args.use_box_score
 DATASET_DIR = args.dataset_root_dir
-if args.dataset_split_file == '':
-    DATASET_SPLIT_FILE = os.path.join(DATASET_DIR, './3DOP_splits/val.txt')
-else:
-    DATASET_SPLIT_FILE = args.dataset_split_file
 if args.output_dir == '':
     OUTPUT_DIR = os.path.join(args.checkpoint_path, './eval/')
 else:
@@ -63,19 +55,16 @@ config = load_config(CONFIG_PATH)
 # setup dataset ===============================================================
 if IS_TEST:
     dataset = KittiDataset(
-        os.path.join(DATASET_DIR, 'image/testing/image_2'),
         os.path.join(DATASET_DIR, 'velodyne/testing/'),
         os.path.join(DATASET_DIR, 'calib/testing/calib'),
-        '',
+        "",
         num_classes=config['num_classes'],
         is_training=False)
 else:
     dataset = KittiDataset(
-        os.path.join(DATASET_DIR, 'image/training/image_2'),
         os.path.join(DATASET_DIR, 'velodyne/training/'),
         os.path.join(DATASET_DIR, 'calib/training/calib'),
         os.path.join(DATASET_DIR, 'labels/training'),
-        DATASET_SPLIT_FILE,
         num_classes=config['num_classes'])
 NUM_TEST_SAMPLE = dataset.num_files
 NUM_CLASSES = dataset.num_classes
@@ -163,7 +152,6 @@ with tf.Session(graph=graph,
             config['downsample_by_voxel_size'])
         
         calib = dataset.get_calib(frame_idx)
-        
         if not IS_TEST:
             box_label_list = dataset.get_label(frame_idx)
         input_time = time.time()

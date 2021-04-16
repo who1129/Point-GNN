@@ -6,6 +6,7 @@ import time
 from os.path import isfile, join
 import random
 from collections import namedtuple, defaultdict
+import glob
 
 import numpy as np
 import open3d
@@ -184,56 +185,45 @@ def sel_xyz_in_box2d(label, xyz, expend_factor=(1.0, 1.0, 1.0)):
     mask = np.logical_and.reduce((points_in_y, points_in_z))
     return mask
 
+
 class KittiDataset(object):
     """A class to interact with KITTI dataset."""
 
-    def __init__(self, image_dir, point_dir, calib_dir, label_dir,
-        index_filename=None, is_training=True, is_raw=False, difficulty=-100,
+    def __init__(self, point_dir, calib_dir, label_dir, is_training=True,
+                 is_raw=False, difficulty=-100,
         num_classes=8):
         """
         Args:
-            image_dir: a string of the path to image folder.
             point_dir: a string of the path to point cloud data folder.
             calib_dir: a string of the path to the calibration matrices.
             label_dir: a string of the path to the label folder.
-            index_filename: a string containing a path an index file.
         """
-
-        self._image_dir = image_dir
         self._point_dir = point_dir
         self._calib_dir = calib_dir
         self._label_dir = label_dir
-        self._index_filename = index_filename
-        if index_filename:
-            self._file_list = self._read_index_file(index_filename)
-        else:
-            self._file_list = self._get_file_list(self._image_dir)
+        self._file_list = self._get_file_index(self._point_dir)
         self._verify_file_list(
-            self._image_dir, self._point_dir, self._label_dir, self._calib_dir,
+            self._point_dir, self._label_dir, self._calib_dir,
             self._file_list, is_training, is_raw)
         self._is_training = is_training
         self._is_raw = is_raw
         self.num_classes = num_classes
         self.difficulty = difficulty
-        self._max_image_height = 376
-        self._max_image_width = 1242
 
     def __str__(self):
         """Generate a string summary of the dataset"""
         summary_string = ('Dataset Summary:\n'
-            +'image_dir=%s\n' % self._image_dir
             +'point_dir=%s\n' % self._point_dir
             +'calib_dir=%s\n' % self._calib_dir
             +'label_dir=%s\n' % self._label_dir
-            +'index_filename=%s\n' % self._index_filename
             +'Total number of sampels: %d\n' % self.num_files)
-        #statics = self.get_statics()
+        #statics = self.get_statistics()
         #return summary_string + statics
         return summary_string
 
-    def get_statics(self):
+    def get_statistics(self):
         import matplotlib.pyplot as plt
-        """Get statics of objects inside the dataset"""
+        """Get statistics of objects inside the dataset"""
         x_dict = defaultdict(list)
         y_dict = defaultdict(list)
         z_dict = defaultdict(list)
@@ -377,42 +367,25 @@ class KittiDataset(object):
     def num_files(self):
         return len(self._file_list)
 
-    def _read_index_file(self, index_filename):
+    def _get_file_index(self, point_dir_path):
         """Read an index file containing the filenames.
 
         Args:
-            index_filename: a string containing the path to an index file.
+            point_dir_path: pcd data path for make file index list.
 
         Returns: a list of filenames.
         """
-
-        file_list = []
-        with open(index_filename, 'r') as f:
-            for line in f:
-                file_list.append(line.rstrip('\n').split('.')[0])
+        tmp = glob.glob(os.path.join(point_dir_path, '*.bin'))
+        file_list = [os.path.basename(p).split(".")[0] for p in tmp]
         return file_list
 
-    def _get_file_list(self, image_dir):
-        """Load all filenames from image_dir.
-
-        Args:
-            image_dir: a string of path to the image folder.
-
-        Returns: a list of filenames.
-        """
-
-        file_list = [f.split('.')[0]
-            for f in os.listdir(image_dir) if isfile(join(image_dir, f))]
-        file_list.sort()
-        return file_list
 
     def _verify_file_list(
-        self, image_dir, point_dir, label_dir, calib_dir, file_list,
+        self, point_dir, label_dir, calib_dir, file_list,
         is_training, is_raw):
         """Varify the files in file_list exist.
 
         Args:
-            image_dir: a string of the path to image folder.
             point_dir: a string of the path to point cloud data folder.
             label_dir: a string of the path to the label folder.
             calib_dir: a string of the path to the calibration folder.
@@ -423,11 +396,9 @@ class KittiDataset(object):
         """
 
         for f in file_list:
-            image_file = join(image_dir, f)+'.png'
             point_file = join(point_dir, f)+'.bin'
             label_file = join(label_dir, f)+'.txt'
             calib_file = join(calib_dir, f)+'.txt'
-            assert isfile(image_file), "Image %s does not exist" % image_file
             assert isfile(point_file), "Point %s does not exist" % point_file
             if not is_raw:
                 assert isfile(calib_file), \
